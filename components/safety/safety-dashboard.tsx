@@ -12,7 +12,7 @@ import { FakeCall } from "./fake-call";
 import { SafetyTimer } from "./safety-timer";
 import { AlarmSystem } from "./alarm-system";
 import { PinTrigger } from "./pin-trigger";
-import { VoiceDetection } from "./voice-detection";
+import  {VoiceDetection} from "./voice-detection";
 import { FollowDetection } from "./follow-detection";
 import { FlashlightMode } from "./flashlight-mode";
 import { SafePlaces } from "./safe-places";
@@ -119,7 +119,7 @@ export function SafetyDashboard() {
               {/* Status indicators */}
               {state.isVoiceDetectionActive && (
                 <div className="p-1.5 rounded-lg bg-primary/10" title="Voice detection active">
-                  <Mic className="w-4 h-4 text-primary animate-pulse" />
+                  <Mic className="w-30 h-30 text-primary animate-pulse" />
                 </div>
               )}
               {state.isFollowDetection && (

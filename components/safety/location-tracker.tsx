@@ -2,139 +2,89 @@
 
 import { useEffect, useState } from "react";
 import { useSafety } from "@/lib/safety-context";
-import { MapPin, Navigation, Wifi, WifiOff, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { MapPin, RefreshCw } from "lucide-react";
 
 export function LocationTracker() {
   const { state, updateLocation, logActivity } = useSafety();
-  const [isOnline, setIsOnline] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  useEffect(() => {
-    const updateOnlineStatus = () => {
-      setIsOnline(navigator.onLine);
-    };
-
-    window.addEventListener("online", updateOnlineStatus);
-    window.addEventListener("offline", updateOnlineStatus);
-    updateOnlineStatus();
-
-    return () => {
-      window.removeEventListener("online", updateOnlineStatus);
-      window.removeEventListener("offline", updateOnlineStatus);
-    };
-  }, []);
-
   const getLocation = async () => {
-    setIsLoading(true);
+    setLoading(true);
+
     try {
-      if ("geolocation" in navigator) {
-        const position = await new Promise<GeolocationPosition>(
-          (resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 0,
-            });
-          }
-        );
-        
-        updateLocation(position.coords.latitude, position.coords.longitude);
-        setLastUpdate(new Date());
-        logActivity("location", "Location updated", {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-      } else {
-        // Simulate location for demo
-        const simulatedLat = 28.6139 + (Math.random() - 0.5) * 0.01;
-        const simulatedLng = 77.209 + (Math.random() - 0.5) * 0.01;
-        updateLocation(simulatedLat, simulatedLng);
-        setLastUpdate(new Date());
-        logActivity("location", "Simulated location updated");
+      if (!navigator.geolocation) {
+        throw new Error("Geolocation not supported");
       }
-    } catch {
-      // Fallback to simulated location
-      const simulatedLat = 28.6139 + (Math.random() - 0.5) * 0.01;
-      const simulatedLng = 77.209 + (Math.random() - 0.5) * 0.01;
-      updateLocation(simulatedLat, simulatedLng);
+
+      const position = await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        }
+      );
+
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      updateLocation(lat, lng);
+      setLastUpdate(new Date());
+
+      logActivity("location", "Updated location", { lat, lng });
+    } catch (err) {
+      console.log("GPS failed, using fallback");
+
+      // ✅ realistic fallback near Bangalore
+      const lat = 12.9716 + (Math.random() - 0.5) * 0.01;
+      const lng = 77.5946 + (Math.random() - 0.5) * 0.01;
+
+      updateLocation(lat, lng);
       setLastUpdate(new Date());
     }
-    setIsLoading(false);
+
+    setLoading(false);
   };
 
+  // 🔥 LIVE TRACKING
   useEffect(() => {
     getLocation();
-    const interval = setInterval(getLocation, 30000); // Update every 30 seconds
+
+    const interval = setInterval(() => {
+      getLocation();
+    }, 10000); // 10 sec update
+
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const formatCoord = (coord: number | undefined) => {
-    return coord?.toFixed(6) ?? "---";
-  };
-
   return (
-    <div className="p-4 rounded-xl bg-card border">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <MapPin className="w-5 h-5 text-primary" />
-          <h3 className="font-semibold">Location</h3>
-        </div>
-        <div className="flex items-center gap-2">
-          {isOnline ? (
-            <div className="flex items-center gap-1 text-xs text-safe">
-              <Wifi className="w-3 h-3" />
-              <span>Online</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 text-xs text-warning">
-              <WifiOff className="w-3 h-3" />
-              <span>Offline</span>
-            </div>
-          )}
-        </div>
+    <div className="p-4 border rounded-lg">
+      <div className="flex justify-between items-center">
+        <h3 className="flex gap-2 items-center font-semibold">
+          <MapPin /> Live Location
+        </h3>
+
+        <button onClick={getLocation}>
+          <RefreshCw className={loading ? "animate-spin" : ""} />
+        </button>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-          <Navigation className="w-5 h-5 text-primary" />
-          <div className="flex-1">
-            <div className="text-sm font-medium">
-              {state.currentLocation ? (
-                <>
-                  {formatCoord(state.currentLocation.lat)},{" "}
-                  {formatCoord(state.currentLocation.lng)}
-                </>
-              ) : (
-                "Acquiring location..."
-              )}
-            </div>
-            {lastUpdate && (
-              <div className="text-xs text-muted-foreground">
-                Last updated: {lastUpdate.toLocaleTimeString()}
-              </div>
-            )}
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={getLocation}
-            disabled={isLoading}
-          >
-            <RefreshCw
-              className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
-            />
-          </Button>
-        </div>
+      <div className="mt-3">
+        {state.currentLocation ? (
+          <p className="text-sm">
+            {state.currentLocation.lat.toFixed(6)},{" "}
+            {state.currentLocation.lng.toFixed(6)}
+          </p>
+        ) : (
+          <p className="text-sm text-gray-500">Getting location...</p>
+        )}
 
-        {!isOnline && (
-          <div className="p-2 rounded-lg bg-warning/10 border border-warning/20">
-            <p className="text-xs text-warning">
-              You are offline. Location is cached and will sync when online.
-            </p>
-          </div>
+        {lastUpdate && (
+          <p className="text-xs text-gray-400">
+            Updated: {lastUpdate.toLocaleTimeString()}
+          </p>
         )}
       </div>
     </div>

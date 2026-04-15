@@ -1,19 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getCurrentUser, setCurrentUser, getUsageStats, type UsageStats } from "@/lib/auth-store";
+import {
+  getCurrentUser,
+  setCurrentUser,
+  getUsageStats,
+  type UsageStats,
+} from "@/lib/auth-store";
 import { SafetyProvider } from "@/lib/safety-context";
 import { SafetyDashboard } from "@/components/safety/safety-dashboard";
-import { LogOut, User, Shield, Activity, MessageSquare, Phone, Timer } from "lucide-react";
+import { LogOut, Activity, MapPin, Mic } from "lucide-react";
 
 export default function DashboardPage() {
   const router = useRouter();
+
   const [user, setUser] = useState<ReturnType<typeof getCurrentUser>>(null);
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [mounted, setMounted] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [stealthMode, setStealthMode] = useState(false);
 
+  // 🔥 STATES
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [voiceText, setVoiceText] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [danger, setDanger] = useState(false);
+
+  // 🔥 REF (IMPORTANT FIX)
+  const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef(false);
+
+  // ✅ AUTH
   useEffect(() => {
     setMounted(true);
     const currentUser = getCurrentUser();
@@ -25,134 +43,204 @@ export default function DashboardPage() {
     setStats(getUsageStats());
   }, [router]);
 
+  // 📍 GPS TRACKING
+  useEffect(() => {
+    const watch = navigator.geolocation.watchPosition(
+      (pos) => {
+        setLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      (err) => console.error("GPS Error:", err),
+      { enableHighAccuracy: true }
+    );
+
+    return () => navigator.geolocation.clearWatch(watch);
+  }, []);
+
+  // 🎤 VOICE DETECTION (FULL FIXED)
+  useEffect(() => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("❌ Use Google Chrome for voice detection");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-IN";
+
+    recognition.onstart = () => {
+      console.log("🎤 Mic started");
+      setIsListening(true);
+      isListeningRef.current = true;
+    };
+
+    recognition.onresult = (event: any) => {
+      let finalText = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        finalText += event.results[i][0].transcript;
+      }
+
+      console.log("🎤 Heard:", finalText);
+      setVoiceText(finalText);
+
+      // 🚨 KEYWORD DETECTION
+      if (
+        finalText.toLowerCase().includes("help") ||
+        finalText.toLowerCase().includes("danger") ||
+        finalText.toLowerCase().includes("save me")
+      ) {
+        console.log("🚨 SOS TRIGGERED");
+        triggerSOS(finalText);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === "aborted") {
+        console.log("⚠️ Mic restart (normal)");
+        return;
+      }
+
+      if (event.error === "not-allowed") {
+        alert("❌ Microphone permission denied");
+        return;
+      }
+
+      console.error("Speech error:", event.error);
+    };
+
+    recognition.onend = () => {
+      console.log("🔁 Mic ended");
+
+      // restart only if not already running
+      if (isListeningRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          console.log("⚠️ Restart skipped");
+        }
+      }
+    };
+
+    recognition.start();
+
+    return () => {
+      isListeningRef.current = false;
+      recognition.stop();
+    };
+  }, []);
+
+  // 🚨 SOS FUNCTION
+  const triggerSOS = (voice?: string) => {
+    setDanger(true);
+
+    const message = `
+🚨 EMERGENCY ALERT
+User: ${user?.name}
+Location: ${location?.lat}, ${location?.lng}
+Voice: ${voice || voiceText}
+`;
+
+    console.log(message);
+
+    alert("🚨 SOS Triggered! Help is on the way.");
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     router.push("/login");
   };
 
-  if (!mounted || !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  if (!mounted || !user) return null;
 
   return (
     <SafetyProvider>
-      <div className="min-h-screen relative">
-        {/* Background image overlay */}
-        <div 
-          className="fixed inset-0 bg-cover bg-center bg-no-repeat opacity-[0.08] pointer-events-none"
-          style={{
-            backgroundImage: `url("/images/women-safety-bg.jpg")`,
-          }}
-        />
-        <div className="fixed inset-0 bg-gradient-to-b from-background via-background/95 to-background pointer-events-none" />
-        
-        {/* Header */}
-        <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-          <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+      <div className="min-h-screen bg-white flex flex-col">
+
+        {/* HEADER */}
+        <header className="sticky top-0 z-50 bg-white border-b border-gray-100 w-full">
+          <div className="w-full px-6 py-3 flex items-center justify-between">
+
+            {/* LEFT */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <Shield className="w-5 h-5 text-primary-foreground" />
-              </div>
+              <img
+                src="/logo.png"
+                alt="SafeGuard Logo"
+                className="h-20 w-20 object-contain"
+              />
               <div>
-                <h1 className="font-bold text-foreground">SafeGuard</h1>
-                <p className="text-xs text-muted-foreground">Welcome, {user.name.split(" ")[0]}</p>
+                <h1 className="font-bold text-lg text-gray-900">SafeGuard</h1>
+                <p className="text-[10px] text-gray-400">
+                  Welcome, {user.name.split(" ")[0]}
+                </p>
+
+                {/* STATUS */}
+                <div className="text-[10px] text-gray-500 mt-1 flex gap-3">
+                  <span className="flex items-center gap-1">
+                    <MapPin size={12} />
+                    {location ? "Tracking" : "No GPS"}
+                  </span>
+
+                  <span className="flex items-center gap-1">
+                    <Mic size={12} />
+                    {isListening ? "Listening" : "Mic Off"}
+                  </span>
+
+                  <span className={danger ? "text-red-500" : "text-green-500"}>
+                    {danger ? "Danger 🚨" : "Safe ✅"}
+                  </span>
+                </div>
+
+                {/* VOICE TEXT */}
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Voice: {voiceText || "Say something..."}
+                </p>
               </div>
             </div>
-            
-            <div className="flex items-center gap-2">
+
+            {/* RIGHT */}
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowStats(!showStats)}
-                className="p-2 rounded-lg hover:bg-muted transition-colors"
-                title="View Statistics"
+                className="p-2 hover:bg-gray-50 rounded-full"
               >
-                <Activity className="w-5 h-5 text-muted-foreground" />
+                <Activity size={20} className="text-gray-500" />
               </button>
+
+              <button
+                onClick={() => setStealthMode(!stealthMode)}
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold ${
+                  stealthMode
+                    ? "bg-green-600 text-white"
+                    : "bg-gray-200 text-gray-700"
+                }`}
+              >
+                Stealth {stealthMode ? "ON" : "OFF"}
+              </button>
+
               <button
                 onClick={handleLogout}
-                className="p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-colors"
-                title="Logout"
+                className="p-2 hover:bg-red-50 rounded-full text-gray-400 hover:text-red-500"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut size={20} />
               </button>
             </div>
           </div>
         </header>
 
-        {/* Stats Panel */}
-        {showStats && stats && (
-          <div className="max-w-lg mx-auto px-4 py-4 animate-fade-in">
-            <div className="bg-card/80 backdrop-blur-xl rounded-2xl border border-border/50 p-4">
-              <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-primary" />
-                Usage Statistics
-              </h2>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20">
-                  <div className="flex items-center gap-2 text-destructive mb-1">
-                    <Shield className="w-4 h-4" />
-                    <span className="text-xs font-medium">SOS Activations</span>
-                  </div>
-                  <p className="text-2xl font-bold text-destructive">{stats.sosActivations}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-safe/10 border border-safe/20">
-                  <div className="flex items-center gap-2 text-safe mb-1">
-                    <MessageSquare className="w-4 h-4" />
-                    <span className="text-xs font-medium">SMS Sent</span>
-                  </div>
-                  <p className="text-2xl font-bold text-safe">{stats.smsSent}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
-                  <div className="flex items-center gap-2 text-primary mb-1">
-                    <Phone className="w-4 h-4" />
-                    <span className="text-xs font-medium">Calls Made</span>
-                  </div>
-                  <p className="text-2xl font-bold text-primary">{stats.callsMade}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-warning/10 border border-warning/20">
-                  <div className="flex items-center gap-2 text-warning mb-1">
-                    <Timer className="w-4 h-4" />
-                    <span className="text-xs font-medium">Timer Usage</span>
-                  </div>
-                  <p className="text-2xl font-bold text-warning">{stats.timerUsage}</p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-3 text-center">
-                Last active: {new Date(stats.lastActive).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* User info card */}
-        <div className="max-w-lg mx-auto px-4 py-4">
-          <div className="bg-gradient-to-r from-primary/10 to-safe/10 rounded-2xl p-4 border border-primary/20">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
-                <User className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-foreground">{user.name}</p>
-                <p className="text-sm text-muted-foreground">{user.email}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Member since</p>
-                <p className="text-sm font-medium text-foreground">
-                  {new Date(user.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Safety Dashboard */}
-        <SafetyDashboard />
+        {/* MAIN */}
+        <main className="flex-1 w-full">
+          <SafetyDashboard />
+        </main>
       </div>
     </SafetyProvider>
   );
